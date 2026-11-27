@@ -2,7 +2,14 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Proposed PlayPrint namespace. No other app paths are granted access here.
+    // Existing Goodman Family Cookbook permissions in the shared sandbox.
+    match /recipes/{recipeId} {
+      allow read, write: if true;
+    }
+    match /categories/{categoryId} {
+      allow read, write: if true;
+    }
+
     function signedIn() {
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
@@ -18,9 +25,19 @@ service cloud.firestore {
       }
     }
 
-    // Public game catalog is maintained by trusted backend administrators.
     match /apps/playprint/games/{gameId} {
       allow read: if true;
+      allow create: if signedIn()
+        && gameId.matches('[0-9a-f]{64}')
+        && request.resource.data.keys().hasOnly(['title', 'searchTitle', 'createdBy', 'createdAt'])
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.searchTitle is string
+        && request.resource.data.searchTitle.size() > 0
+        && request.resource.data.searchTitle.size() <= 240;
     }
 
     match /apps/playprint/profiles/{uid} {
@@ -96,6 +113,5 @@ service cloud.firestore {
       }
     }
     // All unmatched paths are denied by default.
-    // If sharing a database, merge existing app rules before publishing.
   }
 }
