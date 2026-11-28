@@ -2,14 +2,6 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Existing Goodman Family Cookbook permissions in the shared sandbox.
-    match /recipes/{recipeId} {
-      allow read, write: if true;
-    }
-    match /categories/{categoryId} {
-      allow read, write: if true;
-    }
-
     function signedIn() {
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
@@ -25,10 +17,9 @@ service cloud.firestore {
       }
     }
 
-    // Public game catalog is maintained by trusted backend administrators.
     match /apps/playprint/games/{gameId} {
       allow read: if true;
-      allow create: if (signedIn()
+      allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['id', 'name', 'searchName', 'createdBy'])
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.id is string
@@ -37,18 +28,7 @@ service cloud.firestore {
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 160
         && request.resource.data.searchName is string
-        && request.resource.data.searchName.size() <= 160)
-        || (signedIn()
-        && gameId.matches('[0-9a-f]{64}')
-        && request.resource.data.keys().hasOnly(['title', 'searchTitle', 'createdBy', 'createdAt'])
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 120
-        && request.resource.data.searchTitle is string
-        && request.resource.data.searchTitle.size() > 0
-        && request.resource.data.searchTitle.size() <= 240);
+        && request.resource.data.searchName.size() <= 160;
     }
 
     match /apps/playprint/profiles/{uid} {
@@ -92,7 +72,7 @@ service cloud.firestore {
       allow read: if true;
       function validPost() {
         let d = request.resource.data;
-        return d.keys().hasOnly(['authorId','displayName','icon','color','iconColor','ringColor','type','name','time','score','note','action','gameId'])
+        return d.keys().hasOnly(['authorId','displayName','icon','color','iconColor','ringColor','type','name','time','score','note','action','gameId','breakdown'])
           && d.authorId == request.auth.uid
           && d.type in ['review','status']
           && d.name is string && d.name.size() <= 160
@@ -101,7 +81,9 @@ service cloud.firestore {
           && d.score is number && d.score >= 0 && d.score <= 102
           && d.note is string && d.note.size() <= 5000
           && d.action is string && d.action.size() <= 80
-          && d.gameId is string && d.gameId.size() <= 300;
+          && d.gameId is string && d.gameId.size() <= 300
+          && d.get('breakdown', {}) is map
+          && d.get('breakdown', {}).keys().hasOnly(['overall', 'groups', 'bonus', 'awards']);
       }
       allow create: if signedIn() && validPost();
       allow update: if owner(resource.data.authorId) && validPost();
@@ -142,6 +124,55 @@ service cloud.firestore {
           && request.resource.data.text.size() <= 5000;
         allow delete: if owner(resource.data.authorId);
       }
+    }
+    match /apps/playprint/activity/{postId}/reactions/{uid} {
+      allow read: if true;
+      function validReaction() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['reaction', 'createdAt'])
+          && d.reaction in ['like', 'applause', 'funny', 'mindblown', 'love', 'fire']
+          && exists(/databases/$(database)/documents/apps/playprint/activity/$(postId));
+      }
+      allow create: if owner(uid) && validReaction() && request.resource.data.createdAt == request.time;
+      allow update: if owner(uid) && validReaction() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if owner(uid);
+    }
+    match /apps/playprint/activity/{postId}/comments/{commentId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['authorId', 'text', 'createdAt'])
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 5000
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/apps/playprint/activity/$(postId));
+      allow update: if owner(resource.data.authorId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 5000;
+      allow delete: if owner(resource.data.authorId);
+    }
+    match /apps/playprint/publicLibraries/{uid} {
+      allow read: if owner(uid) || resource.data.visible == true;
+      allow write: if false;
+    }
+    match /apps/playprint/publicRankings/{uid} {
+      allow read: if owner(uid) || resource.data.visible == true;
+      allow write: if false;
+    }
+    match /apps/playprint/publicStats/{uid} {
+      allow read: if owner(uid) || resource.data.visible == true;
+      allow write: if false;
+    }
+    match /apps/playprint/achievements/{uid} {
+      allow read: if owner(uid) || resource.data.visible == true;
+      allow write: if false;
+    }
+    match /apps/playprint/communityStats/{statId} {
+      allow read: if true;
+      allow write: if false;
     }
     // All unmatched paths are denied by default.
   }
